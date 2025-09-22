@@ -8,6 +8,88 @@ namespace app;
 
 class Account
 {
+    private static $table = 'account';
+
+    // 检查 BDUSS 是否有效
+    public static function check($BDUSS)
+    {
+        // 【修正】优先使用新的、更简单的sync接口获取UID
+        $headers = [
+            'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36',
+            'Cookie' => "BDUSS=$BDUSS;"
+        ];
+        $resp = Req::get('https://tieba.baidu.com/mo/q/sync', $headers);
+        $json = json_decode($resp, true);
+
+        if (isset($json['no']) && $json['no'] === 0 && isset($json['data']['user_id'])) {
+            $uid = $json['data']['user_id'];
+            // 尝试获取用户名作为补充
+            $name_resp = Req::get('https://pan.baidu.com/api/getuname', $headers);
+            $name_json = json_decode($name_resp, true);
+            $baidu_name = $name_json['uname'] ?? '未知';
+
+            return ['errno' => 0, 'uid' => $uid, 'baidu_name' => $baidu_name];
+        } else {
+            // 如果新接口失败，则回退到旧的、更复杂的客户端模拟接口
+            return self::checkByClientLogin($BDUSS);
+        }
+    }
+
+    // 获取加密的SK
+    public static function getSK($uid, $BDUSS)
+    {
+        if (empty($uid) || empty($BDUSS))
+            return null;
+
+        $url = 'https://pan.baidu.com/api/report/user?action=ANDROID_ACTIVE_BACKGROUND_UPLOAD_AND_DOWNLOAD&clienttype=1&needrookie=1&timestamp=' . time() . '&bind_uid=' . $uid . '&channel=android';
+        $headers = [
+            'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36',
+            'Cookie' => "BDUSS=$BDUSS;"
+        ];
+
+        $resp = Req::get($url, $headers);
+        $json = json_decode($resp, true);
+
+        if (isset($json['errno']) && $json['errno'] === 0 && isset($json['uinfo'])) {
+            return $json['uinfo'];
+        }
+        return null;
+    }
+
+
+    // 通过模拟客户端登录获取UID（作为备用）
+    public static function checkByClientLogin($BDUSS)
+    {
+        $timestamp = time();
+        $post_data = [
+            "BDUSS" => $BDUSS,
+            "bdusstoken" => $BDUSS . "|null",
+            "channel_id" => "",
+            "channel_uid" => "",
+            "stErrorNums" => "0",
+            "subapp_type" => "mini",
+            "timestamp" => $timestamp . "922",
+        ];
+
+        $signed_post_data = Tool::tiebaClientSignature($post_data);
+
+        $headers = [
+            "Content-Type" => "application/x-www-form-urlencoded",
+            "Cookie" => "ka=open",
+            "net" => "1",
+            "User-Agent" => "bdtb for Android 6.9.2.1",
+            "client_logid" => $timestamp . "416",
+            "Connection" => "Keep-Alive",
+        ];
+
+        $resp = Req::post('http://tieba.baidu.com/c/s/login', $signed_post_data, $headers);
+        $json = json_decode($resp, true);
+
+        if (isset($json['error_code']) && $json['error_code'] == '0') {
+            return ['errno' => 0, 'uid' => $json['user']['id'], 'baidu_name' => $json['user']['name']];
+        }
+        return ['errno' => 1, 'error' => 'BDUSS已失效'];
+    }
 
     public static function getBDUSS($cookie)
     {

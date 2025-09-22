@@ -52,7 +52,7 @@ PanDownload 网页复刻版，PHP 语言版<br/>
 5. 进入网站 `http://<网站域名>/install`，按照页面提示进行安装
 6. 进入 `http://<网站域名>/admin` 的系统设置页面中设置 普通 和 SVIP账号 的 Cookie。
 
-## Docker 安装
+<!-- ## Docker 安装
 ### 使用 SQLite 数据库 / 不使用数据库
 1. 安装 docker
 2. 执行下面的命令
@@ -70,7 +70,7 @@ docker run -d -p 8080:8000 yuantuo666/baiduwp-php
 
 == 设置页面 ==
 http://服务器IP:8080/admin
-```
+``` -->
 
 ### 使用 MySQL 数据库
 1. 安装 docker
@@ -138,7 +138,7 @@ wget http://<HOST>/app.tar
 
 ## 相关作品
 下面是一些与本项目相关的作品，如果你想申请添加新项目，请提起新的议题。
-- [alist-org/alist](https://github.com/alist-org/alist) 🗂️A file list/WebDAV program that supports multiple storages, powered by Gin and Solidjs. / 一个支持多存储的文件列表/WebDAV程序，使用 Gin 和 Solidjs。
+- [OpenListTeam/OpenList](https://github.com/OpenListTeam/OpenList) 🗂️A new AList Fork to Anti Trust Crisis
 - [codehub666/94list](https://github.com/codehub666/94list) 百度网盘分享链接分析渲染列表辅助下载开源程序
 - [huankong233/94list-laravel](https://github.com/huankong233/94list-laravel) 94list使用laravel重构
 - [z-mio/baiduwp-bot](https://github.com/z-mio/baiduwp-bot) 一个基于baiduwp-php API的百度网盘解析bot

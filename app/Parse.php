@@ -24,9 +24,12 @@ class Parse
 			[$uk, $share_id] = explode("&", $surl_2);
 			$surl = "";
 		}
-		if ($surl) $params .= "&surl=$surl";
-		if ($share_id) $params .= "&shareid=$share_id";
-		if ($uk) $params .= "&uk=$uk";
+		if ($surl)
+			$params .= "&surl=$surl";
+		if ($share_id)
+			$params .= "&shareid=$share_id";
+		if ($uk)
+			$params .= "&uk=$uk";
 		$url = "https://pan.baidu.com/share/tplconfig?$params&fields=sign,timestamp&channel=chunlei&web=1&app_id=250528&clienttype=0";
 		$header = [
 			"User-Agent: netdisk;pan.baidu.com",
@@ -84,14 +87,16 @@ class Parse
 		// 获取所有文件 fix #86
 		while (true) {
 			$Filejson = self::getListApi($surl, $dir, $IsRoot, $pwd, $Page);
-			if (config('app.debug')) $message[] = json_encode($Filejson);
+			if (config('app.debug'))
+				$message[] = json_encode($Filejson);
 			if ($Filejson["errno"] ?? 999 !== 0) {
 				return self::listError($Filejson, $message);
 			}
 			foreach ($Filejson['data']['list'] as $v) {
 				$file_list[] = $v;
 			}
-			if (count($Filejson['data']["list"]) < 1000) break;
+			if (count($Filejson['data']["list"]) < 1000)
+				break;
 			$Page++;
 		}
 		$randSk = urlencode(self::decodeSceKey($Filejson["data"]["seckey"]));
@@ -104,7 +109,8 @@ class Parse
 			$Dir_list = explode("/", $dir);
 
 			for ($i = 1; $i <= count($Dir_list) - 2; $i++) {
-				if ($i == 1 and strstr($Dir_list[$i], "sharelink")) continue;
+				if ($i == 1 and strstr($Dir_list[$i], "sharelink"))
+					continue;
 				$fullsrc = strstr($dir, $Dir_list[$i], true) . $Dir_list[$i];
 				$DirSrc[] = array("isactive" => 0, "fullsrc" => $fullsrc, "dirname" => $Dir_list[$i]);
 			}
@@ -156,113 +162,95 @@ class Parse
 			"message" => $message
 		);
 	}
-
 	public static function download($fs_id, $timestamp, $sign, $randsk, $share_id, $uk)
 	{
-		if (!$fs_id || !$randsk || !$share_id || !$uk) {
-			return [
-				'error' => -1,
-				'msg' => '参数错误',
-			];
-		}
 		$message = [];
-
 		$ip = Tool::getIP();
 		$isipwhite = FALSE;
+
+		// 1. IP 黑白名单检查
 		if (config('baiduwp.db')) {
 			$data = Db::connect()->table("ip")->where('ip', $ip)->find();
 			if ($data) {
-				// 存在 判断类型
 				if ($data->type === -1) {
-					// 黑名单
 					return array("error" => -1, "msg" => "当前ip已被加入黑名单，请联系站长解封", "ip" => $ip);
 				} elseif ($data->type === 0) {
-					// 白名单
 					$message[] = "当前ip为白名单~ $ip";
 					$isipwhite = TRUE;
 				}
 			}
 		}
 
-		// check if the timestamp is valid
+		// 2. 参数基础验证
+		if (!$fs_id || !$randsk || !$share_id || !$uk) {
+			return ['error' => -1, 'msg' => '核心参数缺失，无法继续解析。'];
+		}
+
+		// 3. 检查并自动续期 sign 和 timestamp
 		if (time() - $timestamp > 300) {
-			// try to get the timestamp and sign
 			list($_status, $sign, $timestamp) = self::getSign("", $share_id, $uk);
 			if ($_status !== 0) {
-				$message[] = "超时，自动获取sign和timestamp失败, $sign";
+				$message[] = "链接超时，自动续期 sign 和 timestamp 失败, $sign";
 			} else {
-				$message[] = "超时，自动获取sign和timestamp成功: $sign, $timestamp";
+				$message[] = "链接超时，自动续期 sign 和 timestamp 成功: $sign, $timestamp";
 			}
 		}
 
-		$json4 = self::getDlink($fs_id, $timestamp, $sign, $randsk, $share_id, $uk);
+		// 4. 获取解析所需的 BDUSS, UID 和 SK
+		$cookie = config('baiduwp.svip_cookie') ?: config('baiduwp.cookie');
+		$bduss = Tool::getSubstr($cookie, 'BDUSS=', ';');
+		if (empty($bduss)) {
+			return ['error' => -1, 'msg' => '未在配置中找到 SVIP BDUSS。'];
+		}
+		$uid = self::_getUid($bduss);
+		$sk = $uid ? self::_getSk($uid, $bduss) : null;
+		if (!$uid || !$sk) {
+			return ['error' => -1, 'msg' => '获取用户信息(UID/SK)失败，请检查 BDUSS 是否有效或过期。'];
+		}
+
+		// 5. 调用核心接口获取下载信息 
+		$json4 = self::getDlink($fs_id, $randsk, $share_id, $uk, $bduss, $uid, $sk);
 		$errno = $json4["errno"] ?? 999;
+
 		if ($errno !== 0) {
-			if (config('app.debug')) {
-				$message[] = "获取下载链接失败: " . json_encode($json4);
-			} else {
-				$message[] = "获取下载链接失败: " . ($json4["error_msg"] ?? "未知错误");
-			}
+			$errMsg = $json4["errmsg"] ?? ($json4["error_msg"] ?? "未知错误");
+			$message[] = config('app.debug') ? "获取下载链接 API 返回错误: " . json_encode($json4) : "获取下载链接 API 返回错误: " . $errMsg;
 			return self::downloadError($json4, $message);
 		}
 
+		// 6. 解析 API 返回的文件信息 (恢复原始逻辑)
 		$dlink = $json4["list"][0]["dlink"] ?? "";
-		// 获取文件相关信息
-		$md5 = $json4["list"][0]["md5"];
-		$md5 = self::decryptMd5($md5); // 尝试解密md5
+		$md5 = self::decryptMd5($json4["list"][0]["md5"]);
 		$filename = $json4["list"][0]["server_filename"] ?? "";
 		$size = $json4["list"][0]["size"] ?? "0";
 		$path = $json4["list"][0]["path"] ?? "";
-		$server_ctime = (int)$json4["list"][0]["server_ctime"] ?? 28800; // 服务器创建时间 +8:00
+		$server_ctime = (int) ($json4["list"][0]["server_ctime"] ?? 28800);
 
-		$FileData = array(
-			"filename" => $filename,
-			"size" => $size,
-			"path" => $path,
-			"uploadtime" => $server_ctime,
-			"md5" => $md5
-		);
+		$FileData = ["filename" => $filename, "size" => $size, "path" => $path, "uploadtime" => $server_ctime, "md5" => $md5];
 
+		// 7. 小文件直接返回
 		if ($size <= 5242880) { // 5MB
-			return array("error" => 0, "filedata" => $FileData, "directlink" => $dlink, "user_agent" => "LogStatistic", "message" => $message);
+			return ["error" => 0, "filedata" => $FileData, "directlink" => $dlink, "user_agent" => "LogStatistic", "message" => $message];
 		}
 
-		list($ID, $cookie) = ["-1", config('baiduwp.svip_cookie') ? config('baiduwp.svip_cookie') : config('baiduwp.cookie')];
+		// 8. 大文件处理流程
+		list($ID, $svip_cookie_db) = ["-1", config('baiduwp.svip_cookie') ? config('baiduwp.svip_cookie') : config('baiduwp.cookie')];
 
 		if (config('baiduwp.db')) {
 			$link_expired_time = config('baiduwp.link_expired_time') ?? 8;
-
-			// 查询数据库中是否存在已经保存的数据
-			$data = Db::connect()
-				->table("records")
-				->where('md5', $md5)
-				->where('time', '>', date('Y-m-d H:i:s', time() - (int)($link_expired_time * 3600)))
-				->find();
-
-			if ($data) {
-				// 存在
-				$realLink = $data['link'];
-				return array("error" => 0, "usingcache" => true, "filedata" => $FileData, "directlink" => $realLink, "user_agent" => "LogStatistic", "message" => $message);
+			$record = Db::connect()->table("records")->where('md5', $md5)->where('time', '>', date('Y-m-d H:i:s', time() - ($link_expired_time * 3600)))->find();
+			if ($record) {
+				return ["error" => 0, "usingcache" => true, "filedata" => $FileData, "directlink" => $record['link'], "user_agent" => "LogStatistic", "message" => $message];
 			}
 
-			// 判断今天内是否获取过文件
-			if (!$isipwhite) { // 白名单跳过
-				// 获取解析次数
-				$count = Db::connect()->table('records')->where('ip', $ip)
-					->where('time', '>', date('Y-m-d 00:00:00', time()))
-					->count();
-
+			if (!$isipwhite) {
+				$count = Db::connect()->table('records')->where('ip', $ip)->where('time', '>', date('Y-m-d 00:00:00'))->count();
 				if ($count > config('baiduwp.times')) {
-					// 提示无权继续
-					return array("error" => 1, "msg" => "今日解析次数已达上限，请明天再试", "ip" => $ip);
+					return ["error" => 1, "msg" => "今日解析次数已达上限，请明天再试", "ip" => $ip];
 				}
-				// 获取解析流量
-				$flow = Db::connect()->table('records')->where('ip', $ip)
-					->where('time', '>', date('Y-m-d 00:00:00', time()))
-					->sum('size');
+				$flow = Db::connect()->table('records')->where('ip', $ip)->where('time', '>', date('Y-m-d 00:00:00'))->sum('size');
 				if ($flow > config('baiduwp.flow') * 1024 * 1024 * 1024) {
-					// 提示无权继续
-					return array("error" => 1, "msg" => "今日解析流量已达上限，请明天再试", "ip" => $ip);
+					return ["error" => 1, "msg" => "今日解析流量已达上限，请明天再试", "ip" => $ip];
 				}
 			}
 
@@ -272,77 +260,53 @@ class Parse
 			} else {
 				$query = $query->order('created_at', 'asc');
 			}
-			$data = $query->find();
-			if ($data) {
-				list($ID, $cookie) = [$data['id'], $data['cookie']];
-				// 更新最后使用时间
-				Db::connect()->table('account')->where('id', $ID)->update(['last_used_at' => date('Y-m-d H:i:s', time())]);
+			$account = $query->find();
+			if ($account) {
+				list($ID, $svip_cookie_db) = [$account['id'], $account['cookie']];
+				Db::connect()->table('account')->where('id', $ID)->update(['last_used_at' => date('Y-m-d H:i:s')]);
 			}
 		}
 
-		$SVIP_BDUSS = Tool::getSubstr($cookie, 'BDUSS=', ';');
+		$SVIP_BDUSS = Tool::getSubstr($svip_cookie_db, 'BDUSS=', ';');
+		$headerArray = ['User-Agent: LogStatistic', 'Cookie: BDUSS=' . $SVIP_BDUSS . ';'];
+		$head_response = Req::HEAD($dlink, $headerArray);
 
-		// 开始获取真实链接
-		$headerArray = array('User-Agent: LogStatistic', 'Cookie: BDUSS=' . $SVIP_BDUSS . ';');
-
-		$header = Req::HEAD($dlink, $headerArray); // 禁止重定向
-		if (!strstr($header, "Location")) {
-			// fail
-			$message[] = "获取真实链接失败 $header";
+		if (!strstr($head_response, "Location")) {
+			$message[] = "获取真实链接失败 $head_response";
 		}
-		$header = str_replace("https://", "http://", $header);
-		$real_link = Tool::getSubstr($header, "Location: ", "\r\n"); // delete http://
+		$real_link = Tool::getSubstr(str_replace("https://", "http://", $head_response), "Location: ", "\r\n");
 
-		// 1. 使用 dlink 下载文件   2. dlink 有效期为8小时   3. 必需要设置 User-Agent 字段   4. dlink 存在 HTTP 302 跳转
 		if (!$real_link || strlen($real_link) < 20) {
-			$body = Req::GET($dlink, $headerArray);
-			$body_decode = json_decode($body, true);
-
-			$message[] = "获取真实下载链接失败：" . json_encode($body_decode);
+			$body = json_decode(Req::GET($dlink, $headerArray), true);
+			$message[] = "获取真实下载链接失败：" . json_encode($body);
 
 			if (config('baiduwp.db') && config('baiduwp.check_speed_limit') && $ID != "-1") {
-				$result = Db::connect()->table('account')->where('id', $ID)->update(['status' => -1]);
-				if ($result) {
-					return array("error" => -1, "msg" => "SVIP账号自动切换成功，请重新请求获取下载地址", "message" => $message);
+				if (Db::connect()->table('account')->where('id', $ID)->update(['status' => -1])) {
+					return ["error" => -1, "msg" => "SVIP账号自动切换成功，请重新请求获取下载地址", "message" => $message];
 				} else {
-					return array("error" => -1, "msg" => "SVIP账号自动切换失败", "message" => $message);
+					return ["error" => -1, "msg" => "SVIP账号自动切换失败", "message" => $message];
 				}
 			}
-			return self::realLinkError($body_decode, $message); // 获取真实链接失败
+			return self::realLinkError($body, $message);
 		}
 		if (str_contains($real_link, "qdall01") || !str_contains($real_link, 'tsl=0')) {
-			// 账号限速
 			$message[] = "SVIP账号限速";
 			if (config('baiduwp.db') && config('baiduwp.check_speed_limit') && $ID != "-1") {
-				$result = Db::connect()->table('account')->where('id', $ID)->update(['status' => -1]);
-				if ($result) {
-					return array("error" => -1, "msg" => "SVIP账号自动切换成功，请重新请求获取下载地址", "message" => $message);
+				if (Db::connect()->table('account')->where('id', $ID)->update(['status' => -1])) {
+					return ["error" => -1, "msg" => "SVIP账号自动切换成功，请重新请求获取下载地址", "message" => $message];
 				} else {
-					return array("error" => -1, "msg" => "SVIP账号自动切换失败", "message" => $message);
+					return ["error" => -1, "msg" => "SVIP账号自动切换失败", "message" => $message];
 				}
 			}
 		}
 
-		// 记录下使用者ip，下次进入时提示
 		if (config('baiduwp.db')) {
-			$result = Db::connect()->table("records")->insert([
-				'ip' => $ip,
-				'ua' => request()->header('User-Agent'),
-				'name' => $filename,
-				'size' => $size,
-				'md5' => $md5,
-				'link' => $real_link,
-				'time' => date('Y-m-d H:i:s', time()),
-				'account' => $ID
-			]);
-
-			if (!$result) {
-				// 保存错误
-				return array("error" => -1, "msg" => "数据库保存错误", "message" => $message);
+			if (!Db::connect()->table("records")->insert(['ip' => $ip, 'ua' => request()->header('User-Agent'), 'name' => $filename, 'size' => $size, 'md5' => $md5, 'link' => $real_link, 'time' => date('Y-m-d H:i:s'), 'account' => $ID])) {
+				return ["error" => -1, "msg" => "数据库保存错误", "message" => $message];
 			}
 		}
 
-		return array("error" => 0, "filedata" => $FileData, "directlink" => $real_link, "user_agent" => "LogStatistic", "message" => $message);
+		return ["error" => 0, "filedata" => $FileData, "directlink" => $real_link, "user_agent" => "LogStatistic", "message" => $message];
 	}
 
 	private static function getListApi(string $Shorturl, string $Dir, bool $IsRoot, string $Password, int $Page = 1)
@@ -364,19 +328,122 @@ class Parse
 		return json_decode(Req::POST($Url, $Data, $header), true);
 	}
 
-	private static function getDlink(string $fs_id, string $timestamp, string $sign, string $randsk, string $share_id, string $uk, int $app_id = 250528)
-	{ // 获取下载链接
-		$url = 'https://pan.baidu.com/api/sharedownload?app_id=' . $app_id . '&channel=chunlei&clienttype=12&sign=' . $sign . '&timestamp=' . $timestamp . '&web=1'; // 获取下载链接
+	private static function getDlink(string $fs_id, string $randsk, string $share_id, string $uk, string $bduss, string $uid, string $sk)
+	{
+		$timestamp = time();
+		$timestamp_ms = (int) (microtime(true) * 1000);
 
-		if (strstr($randsk, "%")) $randsk = urldecode($randsk);
-		$data = "encrypt=0" . "&extra=" . urlencode('{"sekey":"' . $randsk . '"}') . "&fid_list=[$fs_id]" . "&primaryid=$share_id" . "&uk=$uk" . "&product=share&type=nolimit";
-		$header = array(
-			"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36 Edg/110.0.1587.69",
-			"Cookie: " . config('baiduwp.cookie'),
+		$rand = Tool::calculateRand($timestamp_ms, $bduss, $uid, $sk);
+		if ($rand === "cannot_calculate") {
+			return ["errno" => -1, "errmsg" => "无法解密 SK，请检查 UID 和 SK 是否正确。"];
+		}
+
+		$post_body = "encrypt=0&uk=$uk&product=share&primaryid=$share_id&fid_list=[$fs_id]&extra=" . urlencode('{"sekey":"' . urldecode($randsk) . '"}');
+		$sign = Tool::generateShareDownloadSign($post_body, $timestamp);
+
+		$params = [
+			'sign' => $sign,
+			'timestamp' => $timestamp,
+			'rand' => $rand,
+			'time' => $timestamp_ms,
+			'devuid' => Tool::DEVICE_ID,
+			'channel' => 'android',
+			'clienttype' => '1',
+			'version' => Tool::APP_VERSION
+		];
+		$url = 'https://pan.baidu.com/api/sharedownload?' . http_build_query($params);
+
+		$header = [
+			"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36",
+			"Cookie: BDUSS=" . $bduss,
 			"Referer: https://pan.baidu.com/disk/home"
-		);
-		return json_decode(Req::POST($url, $data, $header), true);
-		// 没有 sekey 参数就 118, -20出现验证码
+		];
+
+		return json_decode(Req::POST($url, $post_body, $header), true);
+	}
+
+	/**
+	 * 获取用户 UID
+	 *
+	 * @param string $bduss
+	 * @return string|null
+	 */
+    /**
+	 * 获取用户 UID，优先使用 sync 接口，失败则回退到贴吧客户端登录
+	 */
+	private static function _getUid(string $bduss): ?string
+	{
+		// 1. 优先从数据库读取
+		$account = Db::connect()->table("account")->where('cookie', 'like', '%' . $bduss . '%')->find();
+		if ($account && !empty($account['uid'])) {
+			return $account['uid'];
+		}
+		$uid = null;
+
+		// 2. 数据库中不存在，发起网络请求 (主方案)
+		$url = "https://tieba.baidu.com/mo/q/sync";
+		$header = ["Cookie: BDUSS=" . $bduss, "User-Agent: Mozilla/5.0"];
+		$result = Req::GET($url, $header);
+
+		if (!empty($result)) {
+			$data = json_decode($result, true);
+			if (isset($data['no']) && $data['no'] == 0 && isset($data['data']['user_id'])) {
+				$uid = (string)$data['data']['user_id'];
+			}
+		}
+
+		// 3. 如果主方案失败，则执行备用方案 (Fallback)
+		if ($uid === null) {
+			$clientLoginResult = Account::checkByClientLogin($bduss);
+			if (isset($clientLoginResult['errno']) && $clientLoginResult['errno'] === 0 && isset($clientLoginResult['uid'])) {
+				$uid = $clientLoginResult['uid'];
+			}
+		}
+
+		// 4. 如果任一方案成功，则将结果写回数据库
+		if ($uid !== null && $account) {
+			Db::connect()->table("account")->where('id', $account['id'])->update(['uid' => $uid]);
+		}
+
+		return $uid;
+	}
+
+	/**
+	 * 获取加密的 SK
+	 *
+	 * @param string $uid
+	 * @param string $bduss
+	 * @return string|null
+	 */
+	private static function _getSk(string $uid, string $bduss): ?string
+	{
+		// 1. 优先从数据库读取
+		$account = Db::connect()->table("account")->where('uid', $uid)->find();
+		if ($account && !empty($account['sk'])) {
+			return $account['sk'];
+		}
+
+		// 2. 数据库中不存在，发起网络请求
+		$params = [
+			'action' => 'ANDROID_ACTIVE_BACKGROUND_UPLOAD_AND_DOWNLOAD', 'clienttype' => '1', 'needrookie' => '1',
+			'timestamp' => time(), 'bind_uid' => $uid, 'channel' => 'android'
+		];
+		$url = "https://pan.baidu.com/api/report/user?" . http_build_query($params);
+		$header = ["Cookie: BDUSS=" . $bduss, "User-Agent: Mozilla/5.0"];
+		$result = Req::GET($url, $header);
+		if (empty($result)) return null;
+
+		$data = json_decode($result, true);
+		if (isset($data['errno']) && $data['errno'] == 0 && isset($data['uinfo'])) {
+			$sk = $data['uinfo'];
+			// 3. 将新获取的 SK 写回数据库
+			if ($account) {
+				Db::connect()->table("account")->where('id', $account['id'])->update(['sk' => $sk]);
+			}
+			return $sk;
+		}
+		
+		return null;
 	}
 
 	private static function listError($Filejson, $message): array
@@ -435,18 +502,20 @@ class Parse
 			9019 => ["普通账号错误(9019)", "普通账号 Cookie 状态异常，请检查：账号是否被限制、Cookie 是否过期（前往网站设置页面修改）"],
 		];
 
-		if (isset($error[$errno])) return [
-			"error" => -1,
-			"title" => $error[$errno][0],
-			"msg" => $error[$errno][1],
-			"message" => $message
-		];
-		else return [
-			"error" => -1,
-			"title" => "获取下载链接失败 ($errno)",
-			"msg" => "未知错误！错误：" . json_encode($json4),
-			"message" => $message
-		];
+		if (isset($error[$errno]))
+			return [
+				"error" => -1,
+				"title" => $error[$errno][0],
+				"msg" => $error[$errno][1],
+				"message" => $message
+			];
+		else
+			return [
+				"error" => -1,
+				"title" => "获取下载链接失败 ($errno)",
+				"msg" => "未知错误！错误：" . json_encode($json4),
+				"message" => $message
+			];
 	}
 
 	private static function realLinkError($body_decode, $message): array

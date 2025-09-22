@@ -28,7 +28,15 @@ class Install extends BaseController
                 ]);
             }
 
-            // TODO: 数据库升级的 migration
+            // --- 数据库升级迁移 ---
+            try {
+                $this->migrate();
+            } catch (Exception $e) {
+                return json([
+                    'error' => -1,
+                    'msg' => '数据库升级失败: ' . $e->getMessage(),
+                ]);
+            }
 
             Setting::updateConfig([
                 'program_version' => Index::$version,
@@ -44,6 +52,51 @@ class Install extends BaseController
             'program_version' => config('baiduwp.program_version', ''),
         ]);
     }
+
+    /**
+     * 数据库迁移/升级逻辑
+     */
+     private function migrate()
+    {
+        $dbConnect = Db::connect();
+        // 动态获取当前使用的数据库连接配置
+        $connectionConfig = config('database.connections.' . config('database.default'));
+        $driver = $connectionConfig['type'];
+        $tableName = ($connectionConfig['prefix'] ?? '') . 'account';
+
+        if ($driver === 'mysql') {
+            // --- MySQL 逻辑 ---
+            $dbName = $connectionConfig['database'];
+
+            // 检查 uid 字段
+            $hasUidColumn = $dbConnect->query("SELECT * FROM information_schema.columns WHERE table_schema = '{$dbName}' AND table_name = '{$tableName}' AND column_name = 'uid'");
+            if (empty($hasUidColumn)) {
+                $dbConnect->execute("ALTER TABLE `{$tableName}` ADD COLUMN `uid` VARCHAR(255) NULL DEFAULT NULL AFTER `cookie`");
+            }
+
+            // 检查 sk 字段
+            $hasSkColumn = $dbConnect->query("SELECT * FROM information_schema.columns WHERE table_schema = '{$dbName}' AND table_name = '{$tableName}' AND column_name = 'sk'");
+            if (empty($hasSkColumn)) {
+                $dbConnect->execute("ALTER TABLE `{$tableName}` ADD COLUMN `sk` TEXT NULL DEFAULT NULL AFTER `uid`");
+            }
+        } elseif ($driver === 'sqlite') {
+            // --- SQLite 逻辑 ---
+            $columns = $dbConnect->query("PRAGMA table_info(`{$tableName}`)");
+            $existingColumns = array_column($columns, 'name');
+
+            // 检查 uid 字段
+            if (!in_array('uid', $existingColumns)) {
+                // 注意: SQLite 不支持 "AFTER" 语法，只能将字段添加到末尾
+                $dbConnect->execute("ALTER TABLE `{$tableName}` ADD COLUMN `uid` VARCHAR(255) NULL DEFAULT NULL");
+            }
+            // 检查 sk 字段
+            if (!in_array('sk', $existingColumns)) {
+                $dbConnect->execute("ALTER TABLE `{$tableName}` ADD COLUMN `sk` TEXT NULL DEFAULT NULL");
+            }
+        }
+    }
+
+
     public static function testDbConnect(Request $request)
     {
         $driver = $request->post('driver');
@@ -176,10 +229,13 @@ EOF;
                 `remarks` varchar(255) NOT NULL,
                 PRIMARY KEY (`id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
+            // --- [修订] 在 account 表中增加 uid 和 sk 字段 ---
             "CREATE TABLE IF NOT EXISTS `account` (
                 `id` int(11) NOT NULL AUTO_INCREMENT,
                 `name` varchar(255) NOT NULL,
                 `cookie` TEXT NOT NULL,
+                `uid` VARCHAR(255) NULL DEFAULT NULL,
+                `sk` TEXT NULL DEFAULT NULL,
                 `status` int(1) NOT NULL,
                 `created_at` DATETIME NOT NULL,
                 `last_used_at` DATETIME NOT NULL,
@@ -201,7 +257,7 @@ EOF;
             }
             // 提交事务
             Db::connect('install')->commit();
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             // 回滚事务
             Db::connect('install')->rollback();
             throw $e;
