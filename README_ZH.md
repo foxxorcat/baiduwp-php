@@ -37,7 +37,7 @@ PanDownload 网页复刻版，PHP 语言版<br/>
 [AFF] 市面上虚拟主机参数参差不齐，经测试 [雨云](https://www.rainyun.com/?ref=MjQyNDk=) 可完美运行本程序(香港EP二代 入门版, 7元/月)。
 
 ### 虚拟主机 EasyPanel 面板安装
-1. 进入 [Releases](https://github.com/yuantuo666/baiduwp-php/releases) 下载项目文件 `baiduwp-php-v?.?.?.zip`
+1. 进入 [Releases](https://github.com/foxxorcat/baiduwp-php/releases) 下载项目文件 `baiduwp-php-v?.?.?.zip`
 2. 将压缩包上传到 EasyPanel 面板 `/` 根目录并解压
 3. 删除默认的 `/wwwroot` 目录，并将解压的文件夹改名为 `/wwwroot`
 4. 确认存在 `/wwwroot/public/index.php` 入口文件后，在配置域名页面中，绑定域名到 `/wwwroot/public` 目录下
@@ -45,7 +45,7 @@ PanDownload 网页复刻版，PHP 语言版<br/>
 6. 进入 `http://<网站域名>/admin` 的系统设置页面中设置 普通 和 SVIP账号 的 Cookie。
 
 ### 宝塔面板安装
-1. 进入 [Releases](https://github.com/yuantuo666/baiduwp-php/releases) 下载项目文件 `baiduwp-php-v?.?.?.zip`
+1. 进入 [Releases](https://github.com/foxxorcat/baiduwp-php/releases) 下载项目文件 `baiduwp-php-v?.?.?.zip`
 2. 在宝塔面板创建网站，上传项目文件到网站根目录并解压
 3. 在 网站 —— 站点修改 —— 子目录绑定 中，绑定网站域名到子目录 `public`
 4. 在 网站 —— 站点修改 —— 伪静态 中，选择 `thinkphp` 并保存。
@@ -71,7 +71,7 @@ docker run -d -p 8080:8000 yuantuo666/baiduwp-php
 == 设置页面 ==
 http://服务器IP:8080/admin
 ``` -->
-
+<!-- 
 ### 使用 MySQL 数据库
 1. 安装 docker
 2. 执行下面的命令
@@ -96,11 +96,11 @@ docker run -d --network mysql-network --ip 172.28.0.3 -p 8080:8000 yuantuo666/ba
 
 == 设置页面 ==
 http://服务器IP:8080/admin
-```
+``` -->
 
 ### 自行构建
 ```
-git clone https://github.com/yuantuo666/baiduwp-php
+git clone https://github.com/foxxorcat/baiduwp-php
 cd baiduwp-php
 docker build -t baiduwp-php .
 docker run -d -p 80:8000 baiduwp-php
@@ -133,8 +133,8 @@ wget http://<HOST>/app.tar
 因内外多种因素，本项目将不会增加新功能，仅维护现存的 BUG。若接口失效，本项目将停止更新。
 
 ## 💡 寻求帮助
-如果遇到问题请先 **仔细阅读此文档** 、查看[以前的议题](https://github.com/yuantuo666/baiduwp-php/issues)<br />
-如果还是无法解决，请在 [Issues](https://github.com/yuantuo666/baiduwp-php/issues) 中按模板提出问题，不符合规范的议题可能被直接关闭。
+如果遇到问题请先 **仔细阅读此文档** 、查看[以前的议题](https://github.com/foxxorcat/baiduwp-php/issues)<br />
+如果还是无法解决，请在 [Issues](https://github.com/foxxorcat/baiduwp-php/issues) 中按模板提出问题，不符合规范的议题可能被直接关闭。
 
 ## 相关作品
 下面是一些与本项目相关的作品，如果你想申请添加新项目，请提起新的议题。
